@@ -66,7 +66,7 @@ bool LuaCheckStatus(lua_State* L, int statusCode, const char* message)
     return false;
 }
 
-// This function simulates implementing a callback from C++ into lua, you can 
+// This function simulates implementing a callback from C++ into lua
 int SimulateCallback(lua_State* L)
 {
     const int specialValue = 5;
