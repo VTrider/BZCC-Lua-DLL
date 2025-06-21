@@ -120,6 +120,11 @@ __asm
     add esp, 0x04 // one int parameter is 4 bytes
     mov [retVal], eax // return is in eax, store it in a variable
 
+    // or alternatively you could use the return value in the assembly
+    // if you want to branch based off it or do something else
+    cmp eax, 0
+    je somewhere
+
     // remember to clean up the stack if you allocated space
     // and restore registers
 }
