@@ -1,10 +1,11 @@
 // dllmain.cpp : Defines the entry point for the DLL application.
 
 #include <lua.hpp>
+#include <windows.h> // Note this is included BEFORE ScriptUtils cause otherwise it will overwrite some macros like RGB()
 #include <ScriptUtils.h> // ScriptUtils.h isn't necessary for a pure lua dll but it's useful to have the native api at your disposal as well
-#include <windows.h>
 
 #include <filesystem>
+#include <format>
 #include <memory>
 
 // It can be useful to know where exactly the file is from C++, depending on the structure of your mod you can use this
@@ -44,7 +45,87 @@ int Add(lua_State* L)
 
     return 1; // functions that do not return a value should return 0
 }
- 
+
+// This function emulates how the stock game handles errors in the event callbacks, use it by
+// passing in a format string in the modern style using {} in order for lua to fill in the error message
+bool LuaCheckStatus(lua_State* L, int statusCode, const char* message)
+{
+    if (statusCode == LUA_OK)
+        return true;
+
+    const char* errorMessage = lua_tolstring(L, -1, nullptr);
+
+    if (errorMessage == nullptr)
+        return true;
+
+    std::string formattedMessage = std::vformat(message, std::make_format_args(errorMessage));
+
+    PrintConsoleMessage(formattedMessage.c_str());
+    AddToMessagesBox2(formattedMessage.c_str(), RGB(255, 0, 0));
+
+    return false;
+}
+
+// This function simulates implementing a callback from C++ into lua, you can 
+int SimulateCallback(lua_State* L)
+{
+    const int specialValue = 5;
+
+    // You should have the callback defined IN your module table, not globally like how the game does it.
+    lua_getglobal(L, "package");
+    lua_getfield(L, -1, "loaded");
+    lua_getfield(L, -1, "library"); // name of your module, in this case "library"
+    lua_getfield(L, -1, "MyCallback"); // name of your script-defined callback function
+    
+    // Check to see if the callback has been defined, if not then don't process it
+    if (!lua_isfunction(L, -1))
+    {
+        return 0;
+    }
+
+    lua_pushinteger(L, specialValue); // Push any parameters
+    int status = lua_pcall(L, 1, 1, 0); // Read the reference manual for the details on pcall
+
+    // Check the result to make sure the call went through successfully, like the game does
+    // You can specifiy the type of error, like how the game might say
+    // "Lua script Update Error: [the actual error from lua]
+    LuaCheckStatus(L, status, "Runtime Error: {}");
+
+    // Once we're free of errors...
+    int result = luaL_checkinteger(L, -1); // You can also get the return value from lua, so users can return values to change the behavior
+    
+    if (result == 1)
+    {
+        // Do stuff
+    }
+
+    return 0;
+}
+
+// Don't do anything stupid like call back from another thread, a method that works well is to
+// use callbacks in code injections like this
+
+/*
+int __cdecl MyCallback(int param)
+{
+    // Do stuff...
+    return 1;
+}
+
+// As part of a larger function...
+__asm
+{
+    push ecx // say an interesting value is in ecx
+    call MyCallback // use an explicit calling convention like cdecl and follow it
+    add esp, 0x04 // one int parameter is 4 bytes
+    mov [retVal], eax // return is in eax, store it in a variable
+
+    // remember to clean up the stack if you allocated space
+    // and restore registers
+}
+*/
+
+
 // Define the export table for the lua library, in order for lua to properly load it,
 // you must name this function luaopen_[name_of_your_library] and this must match the name of
 // the .dll file. So this is library.dll and luaopen_library.
@@ -55,6 +136,7 @@ extern "C" int __declspec(dllexport) luaopen_library(lua_State* L)
     constexpr luaL_Reg EXPORT_TABLE[] = {
         { "Hello", Hello },
         { "Add", Add },
+        { "SimulateCallback", SimulateCallback },
         { 0, 0 } // the last entry of the export table should be two zeros
     };
     lua_newtable(L);
